@@ -10,6 +10,9 @@ import akka.persistence.query.PersistenceQuery;
 import akka.persistence.query.TimeBasedUUID;
 import akka.stream.Materializer;
 import akka.stream.SharedKillSwitch;
+import akka.stream.javadsl.RestartSource;
+import akka.stream.scaladsl.Sink;
+import akka.stream.scaladsl.Source;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
@@ -17,9 +20,11 @@ import com.sun.xml.internal.ws.util.CompletedFuture;
 import scala.concurrent.ExecutionContext;
 import akka.stream.KillSwitches;
 
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 
 
 public class EventProcessor extends AbstractLoggingActor {
@@ -48,6 +53,32 @@ public class EventProcessor extends AbstractLoggingActor {
     @Override
     public Receive createReceive() {
         return null;
+    }
+
+    private void runQueryStream(){
+        RestartSource.withBackoff(
+                Duration.ofMillis(500),
+                Duration.ofSeconds(20),
+                0.1,
+
+                () -> Source.fromFutureSource(
+                        readOffset().thenCompose(
+                                offset -> {
+                                    log().info("Starting stream for tag [{}] from offset [{}]", tag, offset);
+
+                                    return query.eventsByTag(tag, offset).map( eventEnvelope -> {
+                                        System.out.println(String.format("EventProcessor tag {} got envelope {} ", tag, eventEnvelope));
+
+                                        return eventEnvelope.offset();
+                                    }
+                                    ).mapAsync(1, o -> writeOffset(o));
+                                }
+                        )
+                )
+            )
+            .via(killSwitches.flow())
+            .runWith(Sink.ignore(), materializer);
+
     }
 
     private CompletionStage<Offset> readOffset(){
