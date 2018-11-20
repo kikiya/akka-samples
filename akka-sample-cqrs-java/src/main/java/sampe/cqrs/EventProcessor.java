@@ -1,6 +1,7 @@
 package sampe.cqrs;
 
 import akka.Done;
+import akka.NotUsed;
 import akka.actor.AbstractLoggingActor;
 import akka.persistence.cassandra.query.javadsl.CassandraReadJournal;
 import akka.persistence.cassandra.session.javadsl.CassandraSession;
@@ -11,12 +12,11 @@ import akka.persistence.query.TimeBasedUUID;
 import akka.stream.Materializer;
 import akka.stream.SharedKillSwitch;
 import akka.stream.javadsl.RestartSource;
-import akka.stream.scaladsl.Sink;
-import akka.stream.scaladsl.Source;
+import akka.stream.javadsl.Sink;
+import akka.stream.javadsl.Source;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
-import com.sun.xml.internal.ws.util.CompletedFuture;
 import scala.concurrent.ExecutionContext;
 import akka.stream.KillSwitches;
 
@@ -49,10 +49,23 @@ public class EventProcessor extends AbstractLoggingActor {
 
     private final SharedKillSwitch killSwitches = KillSwitches.shared("eventProcessorSwitch");
 
+    @Override
+    public void preStart() throws Exception {
+        super.preStart();
+        runQueryStream();
+    }
+
+    @Override
+    public void postStop() throws Exception {
+        super.postStop();
+        killSwitches.shutdown();
+    }
 
     @Override
     public Receive createReceive() {
-        return null;
+        return receiveBuilder()
+                .matchAny((message)-> log().error("Got unexpected message: {}", message))
+        .build();
     }
 
     private void runQueryStream(){
@@ -61,11 +74,10 @@ public class EventProcessor extends AbstractLoggingActor {
                 Duration.ofSeconds(20),
                 0.1,
 
-                () -> Source.fromFutureSource(
-                        readOffset().thenCompose(
+                () -> Source.fromSourceCompletionStage(
+                        readOffset().thenApply(
                                 offset -> {
                                     log().info("Starting stream for tag [{}] from offset [{}]", tag, offset);
-
                                     return query.eventsByTag(tag, offset).map( eventEnvelope -> {
                                         System.out.println(String.format("EventProcessor tag {} got envelope {} ", tag, eventEnvelope));
 
