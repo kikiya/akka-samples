@@ -1,7 +1,6 @@
 package sampe.cqrs;
 
 import akka.Done;
-import akka.NotUsed;
 import akka.actor.AbstractLoggingActor;
 import akka.persistence.cassandra.query.javadsl.CassandraReadJournal;
 import akka.persistence.cassandra.session.javadsl.CassandraSession;
@@ -24,7 +23,6 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.TimeUnit;
 
 
 public class EventProcessor extends AbstractLoggingActor {
@@ -117,8 +115,8 @@ public class EventProcessor extends AbstractLoggingActor {
         if (offset instanceof TimeBasedUUID){
             TimeBasedUUID timeBasedUUID = (TimeBasedUUID)offset;
 
-            return prepareWriteOffset().thenCompose(
-                    (PreparedStatement s) -> CompletableFuture.completedFuture(s.bind(eventProcessorId, tag, timeBasedUUID.value())))
+            return prepareWriteOffset().thenApply(
+                    (PreparedStatement s) -> s.bind(eventProcessorId, tag, timeBasedUUID.value()))
                     .thenCompose(
                     (Statement boundStatement) -> cassandraSession.executeWrite(boundStatement));
 
